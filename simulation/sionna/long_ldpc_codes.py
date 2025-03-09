@@ -1,22 +1,24 @@
+#Adapted from https://nvlabs.github.io/sionna/examples/5G_Channel_Coding_Polar_vs_LDPC_Codes.html
 import numpy as np
 import tensorflow as tf
-
 import matplotlib.pyplot as plt
-
 import numpy as np
 import time # for throughput measurements
 
 
-import os
 import sionna
 sionna.config.seed = 42
-
+from sionna.mapping import Constellation, Mapper, Demapper
+from sionna.fec.polar import PolarEncoder, Polar5GEncoder, PolarSCLDecoder, Polar5GDecoder, PolarSCDecoder
 from sionna.fec.ldpc import LDPC5GEncoder, LDPC5GDecoder
+from sionna.fec.polar.utils import generate_5g_ranking, generate_rm_code
+from sionna.fec.conv import ConvEncoder, ViterbiDecoder, BCJRDecoder
+from sionna.fec.turbo import TurboEncoder, TurboDecoder
+from sionna.fec.linear import OSDecoder
 from sionna.utils import BinarySource, ebnodb2no
+from sionna.utils.metrics import  count_block_errors
 from sionna.channel import AWGN
 from sionna.utils.plotting import PlotBER
-from sionna.mapping import Constellation, Mapper, Demapper
-
 
 class System_Model(tf.keras.Model):
     """System model for channel coding BER simulations.
@@ -136,56 +138,114 @@ class System_Model(tf.keras.Model):
 
         return u, u_hat
 
+def get_throughput(batch_size, ebno_dbs, model, repetitions=1):
+    """ Simulate throughput in bit/s per ebno_dbs point.
+
+    The results are average over `repetition` trials.
+
+    Input
+    -----
+    batch_size: tf.int32
+        Batch-size for evaluation.
+
+    ebno_dbs: tf.float32
+        A tensor containing SNR points to be evaluated.
+
+    model:
+        Function or model that yields the transmitted bits `u` and the
+        receiver's estimate `u_hat` for a given ``batch_size`` and
+        ``ebno_db``.
+
+    repetitions: int
+        An integer defining how many trails of the throughput
+        simulation are averaged.
+
+    """
+    throughput = np.zeros_like(ebno_dbs)
+
+    # call model once to be sure it is compile properly
+    # otherwise time to build graph is measured as well.
+    u, u_hat = model(tf.constant(batch_size, tf.int32),
+                     tf.constant(0., tf.float32))
+
+    for idx, ebno_db in enumerate(ebno_dbs):
+
+        t_start = time.perf_counter()
+        # average over multiple runs
+        for _ in range(repetitions):
+            u, u_hat = model(tf.constant(batch_size, tf.int32),
+                             tf.constant(ebno_db, tf. float32))
+        t_stop = time.perf_counter()
+        # throughput in bit/s
+        throughput[idx] = np.size(u.numpy())*repetitions / (t_stop - t_start)
+
+    return throughput
 
 def main():
-    # code parameters
-    k = 64 # number of information bits per codeword
-    n = 128 # desired codeword length
+    ber_plot_ldpc = PlotBER(f"BER Performance of LDPC Codes @ Rate=1/2")
 
-    # Create list of encoder/decoder pairs to be analyzed.
-    # This allows automated evaluation of the whole list later.
+
+    # code parameters to simulate
+    ns = [128, 256, 512, 1000, 2000]
+          # 4000, 8000, 16000]  # number of codeword bits per codeword
+    rate = 0.5 # fixed coderate
+
+    # create list of encoder/decoder pairs to be analyzed
     codes_under_test = []
-
-    # 5G LDPC codes with 20 BP iterations
-    enc = LDPC5GEncoder(k=k, n=n)
-    dec = LDPC5GDecoder(enc, num_iter=20)
-    name = "5G LDPC BP-20"
-    codes_under_test.append([enc, dec, name])
-
-    
-
-    ber_plot128 = PlotBER(f"Performance of Short Length Codes (k={k}, n={n})")
+    # 5G LDPC codes
+    for n in ns:
+        k = int(rate*n) # calculate k for given n and rate
+        enc = LDPC5GEncoder(k=k, n=n)
+        dec = LDPC5GDecoder(enc, cn_type='minsum',num_iter=20)
+        name = f"5G LDPC minsum, (n={n})"
+        codes_under_test.append([enc, dec, name, k, n])
 
     num_bits_per_symbol = 2 # QPSK
-    ebno_db = np.arange(0, 5, 0.5) # sim SNR range
 
-    # run ber simulations for each code we have added to the list
+    ebno_db = np.arange(0, 3, 1) # sim SNR range
+    # note that the waterfall for long codes can be steep and requires a fine
+    # SNR quantization
+
+    # run ber simulations for each case
     for code in codes_under_test:
-        print("\nRunning: " + code[2])
-
-        # generate a new model with the given encoder/decoder
-        model = System_Model(k=k,
-                            n=n,
+        print("Running: " + code[2])
+        model = System_Model(k=code[3],
+                            n=code[4],
                             num_bits_per_symbol=num_bits_per_symbol,
                             encoder=code[0],
                             decoder=code[1])
 
-        # the first argument must be a callable (function) that yields u and u_hat for batch_size and ebno
-        ber_plot128.simulate(model, # the function have defined previously
-                            ebno_dbs=ebno_db, # SNR to simulate
-                            legend=code[2], # legend string for plotting
-                            max_mc_iter=100, # run 100 Monte Carlo runs per SNR point
-                            num_target_block_errors=1000, # continue with next SNR point after 1000 bit errors
-                            batch_size=10000, # batch-size per Monte Carlo run
-                            soft_estimates=False, # the model returns hard-estimates
-                            early_stop=True, # stop simulation if no error has been detected at current SNR point
-                            show_fig=True, # we show the figure after all results are simulated
-                            add_bler=True, # in case BLER is also interesting
+        # the first argument must be a callable (function) that yields u and u_hat
+        # for given batch_size and ebno
+        # we fix the target number of BLOCK errors instead of the BER to
+        # ensure that same accurate results for each block lengths is simulated
+        ber_plot_ldpc.simulate(model, # the function have defined previously
+                            ebno_dbs=ebno_db,
+                            legend=code[2],
+                            max_mc_iter=100,
+                            num_target_block_errors=500, # we fix the target block errors
+                            batch_size=1000,
+                            soft_estimates=False,
+                            early_stop=True,
+                            show_fig=True,
                             forward_keyboard_interrupt=True); # should be True in a loop
+    
+        # throughput = get_throughput(batch_size=1000,
+        #                     ebno_dbs=ebno_db, # snr point
+        #                     model=model,
+        #                     repetitions=20)
 
-    # and show the figure
-    ber_plot128(ylim=(1e-5, 1), show_bler=False) # we set the ylim to 1e-5 as otherwise more extensive simulations would be required for accurate curves.
-    #ber_plot128(ylim=(1e-5, 1), show_ber=False)
+        # # print throughput
+        # for idx, snr_db in enumerate(ebno_db):
+        #     print(f"Throughput @ {snr_db:.1f} dB: {throughput[idx]/1e6:.2f} Mbit/s")
+
+        # and show figure
+    ber_plot_ldpc(ylim=(1e-5, 1), show_bler=False)
+    plt.legend(fontsize=16)  # Set legend text size
+
+
+
+    plt.show()
 
     # init binary source to generate information bits
     #source = BinarySource()

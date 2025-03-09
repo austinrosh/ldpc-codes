@@ -3,6 +3,7 @@
 ## Overview
 This repository contains an implementation and simulation framework for LDPC (Low-Density Parity-Check) codes, supporting the final project deliverable for EE 387 at Stanford University.
 
+The \simulation directory contains two sub-folders, one of which containing a custom implementation of an LDPC decoder using the min-sum iterative probabilistic decoding method, and the other which explores channel coded simulations for 5G communications using the NVIDIA Sionna link-level modeler.
 
 ---
 
