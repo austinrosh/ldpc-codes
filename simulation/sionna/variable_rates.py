@@ -86,30 +86,23 @@ class System_Model(tf.keras.Model):
                  cw_estimates=False):
 
         super().__init__()
-
-        # store values internally
         self.k = k
         self.n = n
-        self.sim_esno = sim_esno # disable rate-adjustment for SNR calc
-        self.cw_estimates=cw_estimates # if true codewords instead of info bits are returned
+        self.sim_esno = sim_esno 
+        self.cw_estimates=cw_estimates 
 
         # number of bit per QAM symbol
         self.num_bits_per_symbol = num_bits_per_symbol
 
-        # init components
         self.source = BinarySource()
 
-        # initialize mapper and demapper for constellation object
         self.constellation = Constellation("qam",
                                 num_bits_per_symbol=self.num_bits_per_symbol)
         self.mapper = Mapper(constellation=self.constellation)
         self.demapper = Demapper(demapping_method,
                                  constellation=self.constellation)
 
-        # the channel can be replaced by more sophisticated models
         self.channel = AWGN()
-
-        # FEC encoder / decoder
         self.encoder = encoder
         self.decoder = decoder
 
@@ -232,7 +225,7 @@ def main():
     rates = [1/5, 1/3, 1/2, 5/6]  # Target rates
     ns = [round(k / rate) for rate in rates] 
     num_bits_per_symbol = [2, 2, 4, 6]  # QPSK
-    mappings = ["QPSK","QPSK", "4-QAM", "64-QAM"]
+    mappings = ["QPSK","QPSK", "16-QAM", "64-QAM"]
 
     codes_under_test = []
     for i, n in enumerate(ns):

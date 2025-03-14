@@ -200,9 +200,13 @@ def main():
         name = f"5G LDPC minsum, (n={n})"
         codes_under_test.append([enc, dec, name, k, n])
 
+        dec = LDPC5GDecoder(enc, cn_type='boxplus',num_iter=20)
+        name = f"5G LDPC sum-product, (n={n})"
+        codes_under_test.append([enc, dec, name, k, n])
+
     num_bits_per_symbol = 2 # QPSK
 
-    ebno_db = np.arange(0, 3, 1) # sim SNR range
+    ebno_db = np.arange(0, 4, 0.5) # sim SNR range
     # note that the waterfall for long codes can be steep and requires a fine
     # SNR quantization
 
@@ -222,8 +226,8 @@ def main():
         ber_plot_ldpc.simulate(model, # the function have defined previously
                             ebno_dbs=ebno_db,
                             legend=code[2],
-                            max_mc_iter=100,
-                            num_target_block_errors=500, # we fix the target block errors
+                            max_mc_iter=40,
+                            num_target_block_errors=400, # we fix the target block errors
                             batch_size=1000,
                             soft_estimates=False,
                             early_stop=True,

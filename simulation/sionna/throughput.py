@@ -188,7 +188,7 @@ def main():
 
 
     # code parameters to simulate
-    ns = [128, 256, 512, 1000, 2000, 4000, 8000, 16000]  # number of codeword bits per codeword
+    ns = [128, 256, 512, 1000, 2000, 4000]  # number of codeword bits per codeword
     rate = 0.5 # fixed coderate
 
     # create list of encoder/decoder pairs to be analyzed
@@ -199,6 +199,10 @@ def main():
         enc = LDPC5GEncoder(k=k, n=n)
         dec = LDPC5GDecoder(enc, cn_type='minsum',num_iter=20)
         name = f"5G LDPC minsum, (n={n})"
+        codes_under_test.append([enc, dec, name, k, n])
+
+        dec = LDPC5GDecoder(enc, cn_type='boxplus',num_iter=20)
+        name = f"5G LDPC sum-product, (n={n})"
         codes_under_test.append([enc, dec, name, k, n])
 
     num_bits_per_symbol = 2 # QPSK

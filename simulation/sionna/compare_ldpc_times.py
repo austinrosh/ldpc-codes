@@ -168,8 +168,7 @@ def get_throughput(batch_size, ebno_dbs, model, repetitions=3):
     """
     throughput = np.zeros_like(ebno_dbs)
 
-    # call model once to be sure it is compile properly 
-    # otherwise time to build graph is measured as well.
+
     u, u_hat = model(tf.constant(batch_size, tf.int32),
                      tf.constant(0., tf.float32))
 
@@ -188,9 +187,8 @@ def get_throughput(batch_size, ebno_dbs, model, repetitions=3):
 
 
 def main():
-    # code parameters
 
-    ns = [1000, 2000, 4000, 8000]
+    ns = [1000, 2000, 4000]
     rate = 0.5 # fixed coderate
 
     codes_under_test = []
@@ -202,124 +200,90 @@ def main():
         name = f"5G LDPC minsum, (n={n})"
         codes_under_test.append([enc, dec, name, k, n])
         
-        # # Polar Codes (SC decoding)
-        # enc = Polar5GEncoder(k=k, n=n)
-        # dec = Polar5GDecoder(enc, dec_type="SC")
-        # name = f"5G Polar+CRC SC, (n={n})"
-        # codes_under_test.append([enc, dec, name, k, n])
 
         # Conv. code with Viterbi decoding
-        enc = ConvEncoder(rate=1/2, constraint_length=6)
-        dec = ViterbiDecoder(gen_poly=enc.gen_poly, method="soft_llr")
-        name = f"Conv. Code w/ Viterbi, (n={n})"
+        enc = LDPC5GEncoder(k=k, n=n)
+        dec = LDPC5GDecoder(enc,cn_type='boxplus',num_iter=20)
+        name = f"5G LDPC, sum-product, (n={n})"
         codes_under_test.append([enc, dec, name, k, n])
 
-        # Turbo. codes
-        enc = TurboEncoder(rate=1/2, constraint_length=3, terminate=False) 
-        dec = TurboDecoder(enc, num_iter=5)
-        name = f"Turbo Code, (n={n})"
-        codes_under_test.append([enc, dec, name, k, n])
+
+
+    
         
 
     ber_plot = PlotBER(f"BER Performance for Short/Long Code Lengths, R=1/2")
 
     num_bits_per_symbol = 2 # QPSK
-    ebno_db = np.arange(-1, 5, 0.25) 
-    ebno_db_tput = [2] 
-    batch_size = 10000
+    ebno_db = np.arange(-1, 5, 0.25) # sim SNR range
+    ebno_db_tput = [2] # SNR to simulate
+    num_bits_per_batch = 5e6 # must be reduced in case of out-of-memory errors
     num_repetitions = 20 # average throughput over multiple runs
 
+    # run throughput simulations for each code
     n_codes = len(ns)
 
-    throughput_ldpc = np.zeros(n_codes)
-    #throughput_ldpc = np.zeros(len(ns), dtype=object)
-
-    throughput_conv = np.zeros(n_codes)
-    throughput_turbo = np.zeros(n_codes)
+    throughput_ldpc_ms = np.zeros(n_codes)
+    throughput_ldpc_spa = np.zeros(n_codes)
+ 
     code_length = np.zeros(len(ns))
 
+    # run ber simulations for each code we have added to the list
     for idx, code in enumerate(codes_under_test): 
         print("\nRunning: " + code[2])
-
+        batch_size = int(num_bits_per_batch / code[4])
+        # generate a new model with the given encoder/decoder
         model = System_Model(k=code[3],
                             n=code[4],
                             num_bits_per_symbol=num_bits_per_symbol,
                             encoder=code[0],
                             decoder=code[1])
 
-        ber_plot.simulate(model, 
+        # the first argument must be a callable (function) that yields u and u_hat for batch_size and ebno
+        ber_plot.simulate(model, # the function have defined previously
                             ebno_dbs=ebno_db, 
                             legend=code[2], 
-                            max_mc_iter=40, # Monte Carlo runs per SNR point
+                            max_mc_iter=40, 
                             num_target_block_errors=400, 
-                            batch_size=batch_size, # batch-size per Monte Carlo run
-                            soft_estimates=False, #
+                            batch_size=batch_size, 
+                            soft_estimates=False, 
                             early_stop=True,
                             show_fig=True, 
-                            add_bler=False, 
+                            add_bler=False,
                             forward_keyboard_interrupt=True); 
 
+       
         idx_ = 0
-        if idx in [0, 3, 6, 9, 12, 15]:
+        if idx in [0, 2, 4]:
             if idx == 0:
                 idx_ = 0
-            elif idx == 3:
+            elif idx == 2:
                 idx_ = 1
-            elif idx == 6:
+            elif idx == 4:
                 idx_ = 2
-            elif idx == 9:
-                idx_ = 3
-            elif idx == 12:
-                idx_ = 4
-            elif idx == 15:
-                idx_ = 5
 
-            throughput_ldpc[idx_] = get_throughput(batch_size,
+            throughput_ldpc_ms[idx_] = get_throughput(batch_size,
                                         ebno_db_tput,
                                         model,
                                         repetitions=num_repetitions)
             code_length[idx_] = code[4]
 
-        elif idx in [1, 4, 7, 10, 13, 16]:
+        elif idx in [1, 3, 5]:
             if idx == 1:
                 idx_ = 0
-            elif idx == 4:
+            elif idx == 3:
                 idx_ = 1
-            elif idx == 7:
-                idx_ = 2
-            elif idx == 10:
-                idx_ = 3
-            elif idx == 13:
-                idx_ = 4
-            elif idx == 16:
-                idx_ = 5
-            
-            throughput_conv[idx_] = get_throughput(batch_size,
-                                        ebno_db_tput,
-                                        model,
-                                        repetitions=num_repetitions)
-        elif idx in [2, 5, 8, 11, 14, 17]:
-            if idx == 2:
-                idx_ = 0
             elif idx == 5:
-                idx_ = 1
-            elif idx == 8:
-                idx_ = 2    
-            elif idx == 11:
-                idx_ = 3
-            elif idx == 14:
-                idx_ = 4
-            elif idx == 17:
-                idx_ = 5
-
-            throughput_turbo[idx_] = get_throughput(batch_size,
+                idx_ = 2
+            
+            throughput_ldpc_spa[idx_] = get_throughput(batch_size,
                                         ebno_db_tput,
                                         model,
                                         repetitions=num_repetitions)
 
 
     ber_plot(ylim=(1e-5, 1), show_bler=False, save_fig=True) 
-    print(throughput_ldpc)
+    print(throughput_ldpc_ms)
  
 
 
@@ -328,37 +292,38 @@ def main():
     #             '5G LDPC minsum, (n=4000)', 'Conv. Code w/ Viterbi, (n=4000)', 'Turbo Code, (n=4000)',
     #             '5G LDPC minsum, (n=8000)', 'Conv. Code w/ Viterbi, (n=8000)', 'Turbo Code, (n=8000)']
     
-    plots_to_show = ['5G LDPC minsum, (n=1000)', 'Conv. Code w/ Viterbi, (n=1000)', 'Turbo Code, (n=1000)', 
-                '5G LDPC minsum, (n=8000)', 'Conv. Code w/ Viterbi, (n=8000)', 'Turbo Code, (n=8000)']
+#     plots_to_show = ['5G LDPC minsum, (n=1000)', 'Conv. Code w/ Viterbi, (n=1000)', 'Turbo Code, (n=1000)', 
+#                 '5G LDPC minsum, (n=8000)', 'Conv. Code w/ Viterbi, (n=8000)', 'Turbo Code, (n=8000)']
 
 
-    idx = []
-    for p in plots_to_show:
-        for i,l in enumerate(ber_plot._legends):
-            if p==l:
-                idx.append(i)
+# #                '5G LDPC minsum, (n=8000)', 'Conv. Code w/ Viterbi, (n=8000)', 'Turbo Code, (n=8000)']
+#     idx = []
+#     for p in plots_to_show:
+#         for i,l in enumerate(ber_plot._legends):
+#             if p==l:
+#                 idx.append(i)
 
-    current_directory = os.getcwd()
-    ber_data = {"Eb/N0 (dB)": ebno_db}
+#     current_directory = os.getcwd()
+#     ber_data = {"Eb/N0 (dB)": ebno_db}
 
-    for i in idx:
-        legend_name = ber_plot._legends[i]
-        ber_values = ber_plot._bers[i]
-        ber_data[legend_name] = ber_values
+#     for i in idx:
+#         legend_name = ber_plot._legends[i]
+#         ber_values = ber_plot._bers[i]
+#         ber_data[legend_name] = ber_values
 
-    df = pd.DataFrame(ber_data)
-    csv_filename = os.path.join(current_directory, "ber_results.csv")
-    df.to_csv(csv_filename, index=False)
-    print(f"BER data saved to {csv_filename}")
+#     df = pd.DataFrame(ber_data)
+#     csv_filename = os.path.join(current_directory, "ber_results.csv")
+#     df.to_csv(csv_filename, index=False)
+#     print(f"BER data saved to {csv_filename}")
 
 
-    fig, ax = plt.subplots(figsize=(16,12))
-    plt.xticks(fontsize=18)
-    plt.yticks(fontsize=18)
-    plt.title(f"BER Performance for Increasing Code Size ", fontsize=25)
-    plt.grid(which="both")
-    plt.xlabel("$Eb/N0$ (dB)", fontsize=25)
-    plt.ylabel("BER", fontsize=25)
+#     fig, ax = plt.subplots(figsize=(16,12))
+#     plt.xticks(fontsize=18)
+#     plt.yticks(fontsize=18)
+#     plt.title(f"BER Performance for Increasing Code Size ", fontsize=25)
+#     plt.grid(which="both")
+#     plt.xlabel("$Eb/N0$ (dB)", fontsize=25)
+#     plt.ylabel("BER", fontsize=25)
 
     # for i in range(int(len(idx)/4)):
     #     plt.semilogy(ebno_db,
@@ -385,40 +350,42 @@ def main():
     #                 linestyle = "-.",
     #                 linewidth=2)
         
-    for i in range(int(len(idx)/2)):
-        plt.semilogy(ebno_db,
-                    ber_plot._bers[i],
-                    c='C%d'%(i),
-                    label=ber_plot._legends[idx[i]],
-                    linewidth=2)
-        plt.semilogy(ebno_db,
-                    ber_plot._bers[idx[i+3]],
-                    c='C%d'%(i),
-                    label= ber_plot._legends[idx[i+3]],
-                    linestyle = "-.",
-                    linewidth=2)
+    # for i in range(int(len(idx)/2)):
+    #     plt.semilogy(ebno_db,
+    #                 ber_plot._bers[i],
+    #                 c='C%d'%(i),
+    #                 label=ber_plot._legends[idx[i]],
+    #                 linewidth=2)
+    #     plt.semilogy(ebno_db,
+    #                 ber_plot._bers[idx[i+3]],
+    #                 c='C%d'%(i),
+    #                 label= ber_plot._legends[idx[i+3]],
+    #                 linestyle = "-.",
+    #                 linewidth=2)
 
 
-    plt.legend(fontsize=12)
-    #plt.xlim([0, 4.5])
-    plt.ylim([1e-4, 1])
+    # plt.legend(fontsize=12)
+    # #plt.xlim([0, 4.5])
+    # plt.ylim([1e-4, 1])
 
     fig, ax = plt.subplots(figsize=(16,12))
     plt.xticks(fontsize=18)
     plt.yticks(fontsize=18)
     plt.grid(which="both")
-    plt.title(f"Throughput, Eb/N0 = 2.0 dB, R=1/2", fontsize=18)
+    plt.title(f"Throughput, Eb/N0 = 3.0 dB, R=1/2", fontsize=18)
     plt.xlabel("Code Length, N", fontsize=16)
     plt.ylabel("Throughput, [Mbit/s]", fontsize=16)
     x_tick_labels = code_length.astype(int)
     plt.xticks(ticks=np.log2(code_length),labels=x_tick_labels, fontsize=16)
-    plt.plot(np.log2(code_length), throughput_ldpc/1e6, label="LDPC", linewidth=2 )
+    plt.plot(np.log2(code_length), throughput_ldpc_ms/1e6, label="LDPC, min-sum", linewidth=2 )
     #plt.plot(np.log2(code_length), throughput_polar/1e6,label="Polar", linewidth=2)
-    plt.plot(np.log2(code_length), throughput_conv/1e6, label="Conv. w/ Viterbi", linewidth=2)
-    plt.plot(np.log2(code_length), throughput_turbo/1e6, label="Turbo", linewidth=2)
+    plt.plot(np.log2(code_length), throughput_ldpc_spa/1e6, label="LDPC, sum-product", linewidth=2)
     plt.legend(fontsize=12)
     plt.show()
     
+
+
+
 
 if __name__ == "__main__":
      main()
