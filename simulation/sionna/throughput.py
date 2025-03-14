@@ -277,13 +277,6 @@ def main():
     plt.plot(np.log2(code_length), throughput/1e6)
 
     plt.show()
-    # init binary source to generate information bits
-    #source = BinarySource()
-    # define a batch_size
-    # batch_size = 1
-
-    # generate random info bits
-    #u = source([batch_size, k])
 
 if __name__ == "__main__":
      main()

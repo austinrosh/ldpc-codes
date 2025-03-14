@@ -3,7 +3,7 @@
 ## Overview
 This repository contains an implementation and simulation framework for LDPC (Low-Density Parity-Check) codes, supporting the final project deliverable for EE 387 at Stanford University.
 
-The \simulation directory contains various scripts whcih explore channel coded simulations for 5G communications using the NVIDIA Sionna link-level modeler.
+The \simulation directory contains various scripts which explore channel coded simulations for 5G communications using the NVIDIA Sionna link-level modeler.
 
 ---
 
